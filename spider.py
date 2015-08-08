@@ -9,11 +9,12 @@ import re
 import json
 import rsa
 import binascii
+import redis
 
 #global variable
 userMap={}
-candidateSet = set()
-
+#redis-server
+r = redis.Redis(host='localhost',port=6379,db=0)
 
 class weiboLogin:
 	cj = cookielib.LWPCookieJar()
@@ -127,11 +128,16 @@ def getHisSimilar(srcuid):
     followTab = followTab_match.group()
     similiar_reg = re.compile(ur'uid=(\d+)&fnick=([\u4e00-\u9fa5]+)&sex=')
     rst = re.findall(similiar_reg, followTab.decode('utf8'))
+    #print rst
     for (uid,fnick) in rst:
-        userMap[uid] = fnick
-        candidateSet.add(uid)
+        if r.zscore('candidate',uid) != -1:
+            userMap[uid] = fnick.encode('utf8')
+            r.zincrby('candidate',uid)
+
 
 if __name__ == '__main__':
+    N = 100
+    #login
     filename = './config/account'#保存微博账号的用户名和密码，第一行为用户名，第二行为密码
     WBLogin = weiboLogin()
     if WBLogin.login(filename)==1:
@@ -140,10 +146,30 @@ if __name__ == '__main__':
         print 'Login error!'
 	exit()
 
-    candidateSet.add('1282871591')
-    for i in range(5):
-        if len(candidateSet)>0:
-            getHisSimilar(candidateSet.pop())
+    #init
+    r.delete('candidate')
+    r.zadd('candidate','1282871591',100,'1896820725',100,'1645823934',100,'2436093373',100,'1613005690',100)
+    userMap['1896820725']=u'天津股侠'.encode('utf8')
+    userMap['1282871591']=u'花荣'.encode('utf8')
+    userMap['1645823934']=u'李大霄'.encode('utf8')
+    userMap['2436093373']=u'金融侠女盈盈'.encode('utf8')
+    userMap['1613005690']=u'雨农谈股'.encode('utf8')
 
-    for uid in userMap:
-        print userMap[uid]
+    #search
+    for i in range(N):
+        if r.zcard('candidate')>0:
+            print r.zrange('candidate',0,10,desc=True,withscores=True)
+            next = r.zrange('candidate',0,0,desc=True)[0]
+            getHisSimilar(next)
+            r.zadd('candidate',next,-1)
+            r.rpush('result',next)
+
+    #write result
+    with open("result.txt",'w') as f:
+        while r.llen('result') !=0 :
+            uid = r.lpop('result')
+            f.writelines(uid + ' ' +userMap[uid] + '\n')
+
+        for uid in r.zrange('candidate',0,-1,desc=True):
+            if r.zscore('candidate',uid) != -1:
+                f.writelines(uid + ' ' +userMap[uid] + '\n')
