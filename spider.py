@@ -124,26 +124,53 @@ class weiboLogin:
 		urllib2.urlopen(login_url)
 		return 1
 
-def getHisSimilar(srcuid):
-    response = urllib2.urlopen('http://weibo.com/p/100505' + srcuid + '/follow?relate=fans_follow')
-    html = response.read()
+def findFollowTab(html,srcuid):
     followTab_reg = re.compile('<script>FM.view\(\{\"ns\":\"pl.content.followTab.index"(.*)\}\)</script>')
     followTab_match = followTab_reg.search(html)
     if followTab_match is None:
-        logger.warning('Cannot open HisSimilar page. uid = {0}'.format(srcuid))
+        logger.warning('Cannot find followTab. uid = {0}'.format(srcuid))
         return
     followTab = followTab_match.group()
-    similiar_reg = re.compile(ur'uid=(\d+)&fnick=([\u4e00-\u9fa5]+)&sex=')
-    rst = re.findall(similiar_reg, followTab.decode('utf8'))
-    logger.info('HisSimilar of user {0}: {1}'.format(srcuid,rst))
-    for (uid,fnick) in rst:
+    return followTab
+
+def calScore(singleUser):
+    reg = re.compile(r'uid=(\d+)&fnick=(.*?)&sex=.*current=fans\\" >(\d+)')
+    rst_match = reg.search(singleUser)
+    rst = rst_match.groups()
+    uid,fnick,fans=rst[0],rst[1],int(rst[2])
+    if fans<5000:
+        return uid,fnick,0
+
+    score = 1
+    if '微博个人认证' and '股' in singleUser:
+        score = score + 5
+    if '微博签约自媒体' and '股' in singleUser:
+        score = score + 5
+    #if '股' in singleUser:
+    #    score = score + fans/1000
+    return uid,fnick,score
+
+
+def getHisSimilar(srcuid):
+    response = urllib2.urlopen('http://weibo.com/p/100505' + srcuid + '/follow?relate=fans_follow')
+    html = response.read()
+    followTab = findFollowTab(html,srcuid)
+    if followTab is None:
+        return
+    singleUser_reg = re.compile('<li><a href=\\\\\\"javascript:;\\\\\" action-type=\\\\\"webim.conversation\\\\\"(.*?)display:none;')
+    singleUser = singleUser_reg.findall(followTab)
+    for user in singleUser:
+        uid,fnick,score = calScore(user)
+        if score ==0:
+            continue
+        logger.info('uid={0} fnick={1} score={2}'.format(uid,fnick,score))
         if r.zscore('candidate',uid) != -1:
-            userMap[uid] = fnick.encode('utf8')
-            r.zincrby('candidate',uid)
+            userMap[uid] = fnick
+            r.zincrby('candidate',uid,score)
 
 
 if __name__ == '__main__':
-    N = 100
+    N = 1000
     #login
     filename = './config/account'#保存微博账号的用户名和密码，第一行为用户名，第二行为密码
     WBLogin = weiboLogin()
@@ -168,7 +195,7 @@ if __name__ == '__main__':
     #search
     for i in range(N):
         if r.zcard('candidate')>0:
-            #print r.zrange('candidate',0,10,desc=True,withscores=True)
+            print r.zrange('candidate',0,10,desc=True,withscores=True)
             next = r.zrange('candidate',0,0,desc=True)[0]
             logger.info('Iter {0}: uid = {1}'.format(i,next))
             getHisSimilar(next)

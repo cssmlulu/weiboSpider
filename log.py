@@ -8,13 +8,14 @@ import time
 def setlog(name):
     logger=logging.getLogger(name)
     formatter = logging.Formatter('%(asctime)-15s %(name)-12s: %(levelname)-8s %(message)s')
-    logfile = BASE_DIR+"/log/storm"+time.strftime("%Y%m%d")+'.log'
+    logfile = BASE_DIR+"/log/"+time.strftime("%Y%m%d%H%M%S")+'.log'
     handler=logging.FileHandler(logfile)
     handler.setFormatter(formatter)
     logger.addHandler(handler)
     
     console = logging.StreamHandler()
     console.setFormatter(formatter)
+    console.setLevel(logging.WARN)
     logger.addHandler(console)
     
     logger.setLevel(logging.DEBUG)
