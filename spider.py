@@ -11,10 +11,15 @@ import rsa
 import binascii
 import redis
 
+#logger
+import log
+logger=log.setlog("backtester.py")
+
 #global variable
 userMap={}
 #redis-server
 r = redis.Redis(host='localhost',port=6379,db=0)
+
 
 class weiboLogin:
 	cj = cookielib.LWPCookieJar()
@@ -82,9 +87,10 @@ class weiboLogin:
 				pwd = line.strip()
 		f.close()
 		return username,pwd
+
 	def login(self,filename):
 		username,pwd = self.get_account(filename)
-
+		logger.info('try to login. username={0},password={1}'.format(username,pwd))
 		url = 'http://login.sina.com.cn/sso/login.php?client=ssologin.js(v1.4.4)'
 		try:
 			servertime, nonce, pubkey, rsakv = self.get_servertime(username)
@@ -93,7 +99,7 @@ class weiboLogin:
 			#print pubkey
 			#print rsakv
 		except:
-			print 'get servertime error!'
+			logger.critical( 'get servertime error!')
 			return
 		weiboLogin.postdata['servertime'] = servertime
 		weiboLogin.postdata['nonce'] = nonce
@@ -112,23 +118,24 @@ class weiboLogin:
 		#print text
 		p = re.compile('location\.replace\(\'(.*)\'\)')
 		match = re.search(p,text)
+		if match is None:
+		    return 0
 		login_url = match.group(1)
-		print login_url
 		urllib2.urlopen(login_url)
 		return 1
 
 def getHisSimilar(srcuid):
-    print srcuid
     response = urllib2.urlopen('http://weibo.com/p/100505' + srcuid + '/follow?relate=fans_follow')
     html = response.read()
     followTab_reg = re.compile('<script>FM.view\(\{\"ns\":\"pl.content.followTab.index"(.*)\}\)</script>')
     followTab_match = followTab_reg.search(html)
     if followTab_match is None:
+        logger.warning('Cannot open HisSimilar page. uid = {0}'.format(srcuid))
         return
     followTab = followTab_match.group()
     similiar_reg = re.compile(ur'uid=(\d+)&fnick=([\u4e00-\u9fa5]+)&sex=')
     rst = re.findall(similiar_reg, followTab.decode('utf8'))
-    #print rst
+    logger.info('HisSimilar of user {0}: {1}'.format(srcuid,rst))
     for (uid,fnick) in rst:
         if r.zscore('candidate',uid) != -1:
             userMap[uid] = fnick.encode('utf8')
@@ -141,11 +148,14 @@ if __name__ == '__main__':
     filename = './config/account'#保存微博账号的用户名和密码，第一行为用户名，第二行为密码
     WBLogin = weiboLogin()
     if WBLogin.login(filename)==1:
-        print 'Login success!'
+        logger.info('Login success!')
     else:
-        print 'Login error!'
-	exit()
+        logger.critical('Login error!')
+        exit()
 
+    #result file
+    f = open("result.txt",'w')
+    
     #init
     r.delete('candidate')
     r.zadd('candidate','1282871591',100,'1896820725',100,'1645823934',100,'2436093373',100,'1613005690',100)
@@ -158,18 +168,18 @@ if __name__ == '__main__':
     #search
     for i in range(N):
         if r.zcard('candidate')>0:
-            print r.zrange('candidate',0,10,desc=True,withscores=True)
+            #print r.zrange('candidate',0,10,desc=True,withscores=True)
             next = r.zrange('candidate',0,0,desc=True)[0]
+            logger.info('Iter {0}: uid = {1}'.format(i,next))
             getHisSimilar(next)
             r.zadd('candidate',next,-1)
             r.rpush('result',next)
+            f.write(next + ' ' +userMap[next] + '\n')
 
-    #write result
-    with open("result.txt",'w') as f:
-        while r.llen('result') !=0 :
-            uid = r.lpop('result')
-            f.writelines(uid + ' ' +userMap[uid] + '\n')
-
-        for uid in r.zrange('candidate',0,-1,desc=True):
-            if r.zscore('candidate',uid) != -1:
-                f.writelines(uid + ' ' +userMap[uid] + '\n')
+    #candidate results
+    f.write('\n')
+    for uid in r.zrange('candidate',0,-1,desc=True):
+        if r.zscore('candidate',uid) != -1:
+            f.write(uid + ' ' +userMap[uid] + '\n')
+            
+    f.close()
