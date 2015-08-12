@@ -138,8 +138,8 @@ def calScore(singleUser):
     rst_match = reg.search(singleUser)
     rst = rst_match.groups()
     uid,fnick,fans=rst[0],rst[1],int(rst[2])
-    if fans<5000:
-        return uid,fnick,0
+    #if fans<5000:
+    #    return uid,fnick,0
 
     score = 1
     if '微博个人认证' and '股' in singleUser:
@@ -170,7 +170,7 @@ def getHisSimilar(srcuid):
 
 
 if __name__ == '__main__':
-    N = 1000
+    N = 10
     #login
     filename = './config/account'#保存微博账号的用户名和密码，第一行为用户名，第二行为密码
     WBLogin = weiboLogin()
@@ -181,16 +181,15 @@ if __name__ == '__main__':
         exit()
 
     #result file
-    f = open("result.txt",'w')
+    fout = open("result.txt",'w')
     
     #init
     r.delete('candidate')
-    r.zadd('candidate','1282871591',100,'1896820725',100,'1645823934',100,'2436093373',100,'1613005690',100)
-    userMap['1896820725']=u'天津股侠'.encode('utf8')
-    userMap['1282871591']=u'花荣'.encode('utf8')
-    userMap['1645823934']=u'李大霄'.encode('utf8')
-    userMap['2436093373']=u'金融侠女盈盈'.encode('utf8')
-    userMap['1613005690']=u'雨农谈股'.encode('utf8')
+    with open('./config/initUser','r') as f:
+        for line in f.readlines():
+            uid,fnick = line.split()
+            r.zadd('candidate',uid,100)
+            userMap[uid]=fnick
 
     #search
     for i in range(N):
@@ -201,12 +200,12 @@ if __name__ == '__main__':
             getHisSimilar(next)
             r.zadd('candidate',next,-1)
             r.rpush('result',next)
-            f.write(next + ' ' +userMap[next] + '\n')
+            fout.write(next + ' ' +userMap[next] + '\n')
 
     #candidate results
-    f.write('\n')
+    fout.write('\n')
     for uid in r.zrange('candidate',0,-1,desc=True):
         if r.zscore('candidate',uid) != -1:
-            f.write(uid + ' ' +userMap[uid] + '\n')
+            fout.write(uid + ' ' +userMap[uid] + '\n')
             
-    f.close()
+    fout.close()
